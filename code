@@ -1,0 +1,271 @@
+if(!require(dplyr)) install.packages("dplyr", repos = "http://cran.us.r-project.org")
+if(!require(tidyr)) install.packages("tidyr", repos = "http://cran.us.r-project.org")
+if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
+if(!require(sf)) install.packages("sf", repos = "http://cran.us.r-project.org")
+if(!require(geojsonsf)) install.packages("geojsonsf", repos = "http://cran.us.r-project.org")
+if(!require(leaflet)) install.packages("leaflet", repos = "http://cran.us.r-project.org")
+if(!require(leaflet.providers)) install.packages("leaflet.providers", repos = "http://cran.us.r-project.org")
+if(!require(leaflet.extras)) install.packages("leaflet.extras", repos = "http://cran.us.r-project.org")
+if(!require(RColorBrewer)) install.packages("RColorBrewer", repos = "http://cran.us.r-project.org")
+if(!require(shiny)) install.packages("shiny", repos = "http://cran.us.r-project.org")
+if(!require(shinyWidgets)) install.packages("shinyWidgets", repos = "http://cran.us.r-project.org")
+if(!require(shinydashboard)) install.packages("shinydashboard", repos = "http://cran.us.r-project.org")
+if(!require(shinydashboardPlus)) install.packages("shinydashboardPlus", repos = "http://cran.us.r-project.org")
+if(!require(shinyalert)) install.packages("shinyalert", repos = "http://cran.us.r-project.org")
+if(!require(shinythemes)) install.packages("shinythemes", repos = "http://cran.us.r-project.org")
+library(shinycssloaders)
+library(highcharter)
+
+df_raw = geojson_sf("https://maps.amsterdam.nl/open_geodata/geojson_lnglat.php?KAARTLAAG=ZONNEPANELEN&THEMA=zonnepanelen")
+
+df_1 = df_raw %>% 
+  select("Functie", "Gebruiksdoel", "Panelen_2016","Wattage_2016", "Panelen_2017","Wattage_2017", "Panelen_2018", "Wattage_2018",
+         "Panelen_2019","Wattage_2019", "Panelen_2020","Wattage_2020" , "Panelen_2021", "Wattage_2021", "geometry")
+
+ui <- dashboardPage(
+  
+  dashboardHeader(disable = T),
+  
+  dashboardSidebar(disable = T,minified = F,collapsed = T),
+  
+  dashboardBody(
+    
+    div(class="outer",
+        tags$head(
+          tags$style(HTML("
+                  div.outer {
+                      position: fixed;
+                      top: 0px;
+                      left: 0;
+                      right: 0;
+                      bottom: 0;
+                      overflow: hidden;
+                      padding: 0;
+                    }
+                    
+                    /* Customize fonts */
+                    body, label, input, button, select { 
+                      font-family: 'Helvetica Neue', Helvetica;
+                      font-weight: 200;
+                    }
+                    h1, h2, h3, h4 { font-weight: 400; }
+                    
+                    #controls {
+                      /* Appearance */
+                      background-color: white;
+                      padding: 0 10px 10px 10px;
+                      cursor: move;
+                      /* Fade out while not hovering */
+                      opacity: 0.75;
+                      zoom: 1;
+                      transition: opacity 500ms 1s;
+                    }
+                    
+                    #controls:hover {
+                      /* Fade in while hovering */
+                      opacity: 0.85;
+                      transition-delay: 0;
+                    }
+                  }"))
+        ),
+        
+        withSpinner(leafletOutput("map",height="590px",width = "100%"),color = "red",type = 6,size = 1),
+        
+        absolutePanel(id = "controls", class = "panel panel-default",
+                      top = 35, left = 25, width = 200, fixed=TRUE,
+                      draggable = TRUE, height = "auto",   
+                      
+                      radioGroupButtons(
+                        inputId = "Id069",
+                        label = span(tags$i(h6("Kies tussen het aantal aanwezige panelen of de
+                                                                    hoeveelheid wattage productie.")),
+                                     style="color:#045a8d"),
+                        choices = c(`<i class='fa fa-solar-panel'></i>` = "Panelen",
+                                    `<i class='fa fa-bolt'></i>` = "Wattage"),
+                        justified = TRUE
+                      ),
+                      checkboxGroupButtons(
+                        inputId = "inputFunctie",justified = T,
+                        label = span(tags$i(h6("Kies of u rekening houdt met panelen die aanwezig zijn in woningbouw en/of in industriÃ«le infrastructuren.")),
+                                     style="color:#045a8d"),
+                        choices = c(`<i class='fa fa-home'></i>` = "Wonen", 
+                                    `<i class='fa fa-industry'></i>` = "NietWonen"),
+                        selected = c("Wonen","NietWonen")
+                      ),
+                      pickerInput(inputId = "icons",
+                                  label = span(tags$i(h6("Kies het resolutieniveau tussen de verschillende
+                                                               administratieve niveaus.")),
+                                               style="color:#045a8d"),
+                                  choices = list("Buurten", "Gebied", "Stadsdeel"),
+                                  options = list(`live-search` = TRUE),
+                      ),
+                      
+                      highchartOutput("plot",height="140px")
+                      
+        )
+    )
+  )
+)
+
+server <- function(input, output, session) {
+  
+  df_map <-reactive({
+    if (input$icons == "Gebied") {
+      df_polygons <- 
+        geojson_sf("https://maps.amsterdam.nl/open_geodata/geojson_lnglat.php?KAARTLAAG=INDELING_GEBIED&THEMA=gebiedsindeling")
+      
+      df_join = st_join(df_polygons,df_1) %>% 
+        drop_na() %>% 
+        filter(Functie %in% input$inputFunctie) %>%
+        group_by(Gebied) %>%
+        summarise(Panelen_2016=sum(Panelen_2016),
+                  Panelen_2017=sum(Panelen_2017),
+                  Panelen_2018=sum(Panelen_2018),
+                  Panelen_2019=sum(Panelen_2019),
+                  Panelen_2020=sum(Panelen_2020),
+                  Panelen_2021=sum(Panelen_2021),
+                  Wattage_2016_sum=sum(Wattage_2016),
+                  Wattage_2017_sum=sum(Wattage_2017),
+                  Wattage_2018_sum=sum(Wattage_2018),
+                  Wattage_2019_sum=sum(Wattage_2019),
+                  Wattage_2020_sum=sum(Wattage_2020),
+                  Wattage_2021_sum=sum(Wattage_2021)) %>%
+        select("Gebied",starts_with(input$Id069)) %>%
+        st_as_sf()
+      
+      names(df_join)[2:7] = as.list(seq.int(2016,2021))
+      names(df_join)[1] = 'area'
+      
+    }
+    
+    else if (input$icons == "Stadsdeel") {
+      df_polygons <- 
+        geojson_sf("https://maps.amsterdam.nl/open_geodata/geojson_lnglat.php?KAARTLAAG=INDELING_STADSDEEL&THEMA=gebiedsindeling")
+      
+      df_join = st_join(df_polygons,df_1) %>% 
+        drop_na() %>% 
+        filter(Functie %in% input$inputFunctie) %>%
+        group_by(Stadsdeel) %>%
+        summarise(Panelen_2016=sum(Panelen_2016),
+                  Panelen_2017=sum(Panelen_2017),
+                  Panelen_2018=sum(Panelen_2018),
+                  Panelen_2019=sum(Panelen_2019),
+                  Panelen_2020=sum(Panelen_2020),
+                  Panelen_2021=sum(Panelen_2021),
+                  Wattage_2016_sum=sum(Wattage_2016),
+                  Wattage_2017_sum=sum(Wattage_2017),
+                  Wattage_2018_sum=sum(Wattage_2018),
+                  Wattage_2019_sum=sum(Wattage_2019),
+                  Wattage_2020_sum=sum(Wattage_2020),
+                  Wattage_2021_sum=sum(Wattage_2021)) %>%
+        select("Stadsdeel",starts_with(input$Id069)) %>%
+        st_as_sf()
+      
+      names(df_join)[2:7] = as.list(seq.int(2016,2021))
+      names(df_join)[1] = 'area'
+      
+    }
+    
+    else {
+      df_polygons <- 
+        geojson_sf("https://maps.amsterdam.nl/open_geodata/geojson_lnglat.php?KAARTLAAG=INDELING_BUURT&THEMA=gebiedsindeling")
+      
+      df_join = st_join(df_polygons,df_1) %>% 
+        drop_na() %>% 
+        filter(Functie %in% input$inputFunctie) %>%
+        group_by(Buurt) %>%
+        summarise(Panelen_2016=sum(Panelen_2016),
+                  Panelen_2017=sum(Panelen_2017),
+                  Panelen_2018=sum(Panelen_2018),
+                  Panelen_2019=sum(Panelen_2019),
+                  Panelen_2020=sum(Panelen_2020),
+                  Panelen_2021=sum(Panelen_2021),
+                  Wattage_2016_sum=sum(Wattage_2016),
+                  Wattage_2017_sum=sum(Wattage_2017),
+                  Wattage_2018_sum=sum(Wattage_2018),
+                  Wattage_2019_sum=sum(Wattage_2019),
+                  Wattage_2020_sum=sum(Wattage_2020),
+                  Wattage_2021_sum=sum(Wattage_2021)) %>%
+        select("Buurt",starts_with(input$Id069)) %>%
+        st_as_sf()
+      
+      names(df_join)[2:7] = as.list(seq.int(2016,2021))
+      names(df_join)[1] = 'area'
+    }
+    
+    return(df_join)
+    
+  })
+  
+  observeEvent(input$map_shape_click, {
+    
+    click <- input$map_shape_click[1]
+    
+    output$plot <- renderHighchart({
+      
+      df_map() %>%
+        filter(area==click$id) %>%
+        pivot_longer(cols = names(df_map())[2:7]) %>%
+        hchart("line", hcaes(x = name, y = value),name = "Antaal",) %>%
+        hc_yAxis(title=F) %>%
+        hc_xAxis(title=F) %>% 
+        hc_tooltip(sort = TRUE, table = TRUE) %>%
+        hc_add_theme(hc_theme_538())
+      
+    })
+    
+  },ignoreInit = T)
+  
+  
+  
+  labels <- reactive({
+    if (input$icons == "Gebied") {
+      
+      paste0("<strong>Gebied:</strong> ",df_map()$area, "<br>",
+             "<strong>Aaantal </strong>", input$Id069, "<strong> in 2021:</strong>",
+             df_map()$`2021`) %>% 
+        lapply(htmltools::HTML)
+      
+    }
+    
+    else if (input$icons == "Stadsdeel") {
+      
+      paste0("<strong>Stadsdeel:</strong> ",df_map()$area, "<br>",
+             "<strong>Aaantal </strong>", input$Id069, "<strong> in 2021:</strong>",
+             df_map()$`2021`) %>% 
+        lapply(htmltools::HTML)
+      
+    }
+    
+    else {
+      
+      paste0("<strong>Buurt:</strong> ",df_map()$area, "<br>",
+             "<strong>Aaantal </strong>", input$Id069, "<strong> in 2021:</strong>",
+             df_map()$`2021`) %>% 
+        lapply(htmltools::HTML)
+      
+    }
+    
+  })
+  
+  output$map <- renderLeaflet({
+    
+    pal <- colorNumeric(
+      palette = "Reds",
+      domain = df_map()$`2021`,na.color = "#8A8A8A")
+    
+    leaflet(df_map(),options = leafletOptions(zoomControl = FALSE)) %>%
+      addProviderTiles(providers$CartoDB.Positron) %>%
+      addPolygons(
+        stroke = T,weight = 0.3,
+        fillColor = ~pal(df_map()$`2021`),
+        label = labels(),
+        fillOpacity = 0.8,
+        layerId = ~area)
+    
+    
+  })
+  
+}
+
+shinyApp(ui, server)
